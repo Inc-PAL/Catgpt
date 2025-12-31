@@ -1,0 +1,1042 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CatGPT</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #212121;
+            color: #ececec;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #424242;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #616161;
+        }
+
+        .typing-cursor::after {
+            content: '●';
+            animation: blink 1s infinite;
+            margin-left: 2px;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+
+        /* Thinking Accordion Animation */
+        .thinking-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+        }
+        .thinking-content.open {
+            max-height: 500px; /* Arbitrary large height */
+            transition: max-height 0.5s ease-in;
+            overflow-y: auto; /* In case thoughts are long */
+        }
+
+        /* Suggestion Animation */
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .suggestion-card {
+            animation: fadeInUp 0.5s ease-out forwards;
+            opacity: 0; /* Start hidden */
+        }
+
+        /* Golden Output Style */
+        .golden-text {
+            color: #fbbf24; /* amber-400 */
+            text-shadow: 0 0 10px rgba(251, 191, 36, 0.5);
+            font-weight: 600;
+        }
+        
+        /* Ensure newlines are respected in the output */
+        .ai-response-text {
+            white-space: pre-wrap;
+        }
+        
+        /* Thinking pulse animation */
+        @keyframes pulse-gray {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .animate-pulse-slow {
+            animation: pulse-gray 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        .sidebar-item-active {
+            background-color: #212121;
+            color: #fff;
+        }
+
+        /* Loading Dots Animation */
+        .loading-dots::after {
+            content: '.';
+            animation: dots 1.5s steps(5, end) infinite;
+        }
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60% { content: '...'; }
+            80%, 100% { content: ''; }
+        }
+    </style>
+</head>
+<body class="h-screen flex overflow-hidden">
+
+    <!-- Mobile Overlay -->
+    <div id="sidebar-overlay" onclick="toggleSidebar()" class="fixed inset-0 bg-black/50 z-30 hidden md:hidden transition-opacity opacity-0"></div>
+
+    <!-- Sidebar -->
+    <!-- Changed to fixed on mobile with transform translation for drawer effect -->
+    <aside id="main-sidebar" class="w-[260px] bg-[#171717] flex-col flex fixed inset-y-0 left-0 z-40 transition-transform duration-300 transform -translate-x-full md:relative md:translate-x-0 md:flex">
+        <div class="p-3 flex items-center justify-between">
+            <button onclick="startNewChat()" class="flex items-center gap-2 w-full px-3 py-2 hover:bg-[#212121] rounded-lg transition-colors text-sm text-gray-200 border border-transparent hover:border-gray-700">
+                <div class="bg-white text-black p-1 rounded-full">
+                    <i data-lucide="cat" class="w-4 h-4"></i>
+                </div>
+                <span>New chat</span>
+                <i data-lucide="square-pen" class="w-4 h-4 ml-auto text-gray-400"></i>
+            </button>
+            <!-- Mobile Close Button -->
+            <button onclick="toggleSidebar()" class="md:hidden p-2 text-gray-400 hover:text-white">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+        </div>
+
+        <div class="flex-1 overflow-y-auto px-3 py-2">
+            <div class="text-xs font-medium text-gray-500 mb-2 px-2">History</div>
+            <div class="space-y-1" id="history-list">
+                <!-- History items injected here via JS -->
+            </div>
+        </div>
+
+        <!-- User Profile Section -->
+        <div class="p-3 border-t border-gray-800 relative">
+            <button id="user-menu-btn" onclick="toggleUserMenu()" class="flex items-center gap-3 w-full px-3 py-3 hover:bg-[#212121] rounded-lg text-sm transition-colors">
+                <div class="w-8 h-8 rounded-full bg-gradient-to-r from-orange-400 to-red-500 flex items-center justify-center text-white font-bold">
+                    U
+                </div>
+                <div class="flex flex-col text-left">
+                    <span class="font-medium">User</span>
+                    <span class="text-xs text-gray-500">Free Plan</span>
+                </div>
+            </button>
+
+            <!-- User Dropdown Menu -->
+            <div id="user-menu" class="absolute bottom-full left-0 mb-2 w-full px-2 hidden">
+                <div class="bg-[#2f2f2f] border border-gray-700 rounded-xl shadow-xl overflow-hidden">
+                    <button onclick="clearAllChats()" class="flex items-center gap-3 w-full px-4 py-3 text-red-400 hover:bg-[#424242] text-sm text-left transition-colors">
+                        <i data-lucide="trash-2" class="w-4 h-4"></i>
+                        Clear all chats
+                    </button>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col relative bg-[#212121] w-full">
+        
+        <!-- Header / Model Selector -->
+        <header class="h-14 flex items-center px-4 justify-between md:justify-start gap-4 sticky top-0 bg-[#212121] z-10">
+            <button class="md:hidden text-gray-400 hover:text-white p-1" onclick="toggleSidebar()">
+                <i data-lucide="menu" class="w-6 h-6"></i>
+            </button>
+            
+            <div class="relative">
+                <button id="model-selector-btn" onclick="toggleModelDropdown()" class="flex items-center gap-2 text-lg font-medium text-gray-200 hover:bg-[#2f2f2f] px-3 py-2 rounded-lg transition-colors">
+                    <span id="current-model-name">CatGPT</span>
+                    <i data-lucide="chevron-down" class="w-4 h-4 text-gray-500"></i>
+                </button>
+                
+                <!-- Dropdown -->
+                <div id="model-dropdown" class="absolute top-full left-0 mt-1 w-64 bg-[#2f2f2f] border border-gray-700 rounded-xl shadow-xl p-1 hidden z-50">
+                    <div onclick="selectModel('4o')" class="flex items-center gap-3 px-3 py-2.5 hover:bg-[#424242] rounded-lg cursor-pointer">
+                        <i data-lucide="sparkles" class="w-5 h-5 text-blue-400"></i>
+                        <div>
+                            <div class="text-sm font-medium">CatGPT</div>
+                            <div class="text-xs text-gray-400">Great for most tasks</div>
+                        </div>
+                    </div>
+                    <div onclick="selectModel('o1')" class="flex items-center gap-3 px-3 py-2.5 hover:bg-[#424242] rounded-lg cursor-pointer">
+                        <i data-lucide="brain-circuit" class="w-5 h-5 text-purple-400"></i>
+                        <div>
+                            <div class="text-sm font-medium">CatGPT Big Brain</div>
+                            <div class="text-xs text-gray-400">Uses advanced reasoning</div>
+                        </div>
+                    </div>
+                    <div onclick="selectModel('flash')" class="flex items-center gap-3 px-3 py-2.5 hover:bg-[#424242] rounded-lg cursor-pointer">
+                        <i data-lucide="zap" class="w-5 h-5 text-yellow-400"></i>
+                        <div>
+                            <div class="text-sm font-medium">CatGPT (fast)</div>
+                            <div class="text-xs text-gray-400">Fastest model</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Chat Area -->
+        <div id="chat-container" class="flex-1 overflow-y-auto p-4 md:p-0 scroll-smooth">
+            <!-- Expanded max-width for better screen usage -->
+            <!-- Increased bottom padding from pb-32 to pb-64 -->
+            <div class="max-w-3xl lg:max-w-5xl mx-auto min-h-full flex flex-col pt-4 md:pt-10 pb-64">
+                
+                <!-- Welcome Screen (Only shown when empty) -->
+                <div id="welcome-screen" class="flex flex-col items-center justify-center flex-grow text-center space-y-8 px-4">
+                    <div class="w-16 h-16 bg-white rounded-full flex items-center justify-center mb-4 shadow-lg">
+                        <i data-lucide="cat" class="w-10 h-10 text-black"></i>
+                    </div>
+                    <h2 class="text-2xl font-semibold">Meow! moew meow meow meow meow meow?</h2>
+                    
+                    <div id="suggestions-grid" class="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-2xl px-4">
+                        <!-- Dynamic Suggestions will appear here -->
+                    </div>
+                </div>
+
+                <!-- Messages List -->
+                <div id="messages-list" class="flex flex-col space-y-6 w-full pb-4 hidden px-2 md:px-0">
+                    <!-- Dynamic Messages go here -->
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Input Area -->
+        <div class="absolute bottom-0 left-0 w-full bg-[#212121] pt-4 pb-6 px-4">
+            <!-- Expanded max-width -->
+            <div class="max-w-3xl lg:max-w-5xl mx-auto">
+                
+                <!-- Main Input Container -->
+                <!-- Updated styles: flex column to contain preview + inputs seamlessly -->
+                <div class="relative bg-[#2f2f2f] rounded-3xl border border-gray-700 shadow-sm focus-within:ring-1 focus-within:ring-gray-500 flex flex-col overflow-hidden">
+                    
+                    <!-- File Preview Area (Inside container now) -->
+                    <div id="file-preview" class="hidden px-4 pt-3 pb-1 border-b border-gray-700/50 bg-[#282828]">
+                        <div class="relative inline-block group">
+                            <img id="preview-img" src="" class="h-14 w-14 object-cover rounded-lg border border-gray-600">
+                            <button onclick="clearFile()" class="absolute -top-1.5 -right-1.5 bg-gray-800 rounded-full p-0.5 border border-gray-600 hover:bg-gray-700 transition-colors shadow-md">
+                                <i data-lucide="x" class="w-3 h-3 text-white"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <input type="file" id="image-upload" accept="image/*" class="hidden" onchange="handleFileSelect(this)">
+                    
+                    <div class="flex items-end p-3 gap-2">
+                        <button onclick="document.getElementById('image-upload').click()" class="p-2 text-gray-400 hover:text-white hover:bg-[#424242] rounded-full transition-colors flex-shrink-0" title="Attach file">
+                            <i data-lucide="paperclip" class="w-5 h-5"></i>
+                        </button>
+                        
+                        <!-- Added outline-none and other utilities to remove random box issues -->
+                        <textarea id="user-input" rows="1" placeholder="Message CatGPT" class="w-full bg-transparent border-none text-white placeholder-gray-500 focus:ring-0 focus:outline-none resize-none max-h-[200px] py-2 px-1 overflow-y-auto outline-none shadow-none ring-0" style="min-height: 44px;"></textarea>
+                        
+                        <button id="send-btn" onclick="handleSend()" class="p-2 bg-white text-black rounded-full disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-200 transition-colors mb-0.5 flex-shrink-0">
+                            <i data-lucide="paw-print" class="w-5 h-5 font-bold"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="text-center mt-2">
+                    <p class="text-xs text-gray-500">CatGPT will never make any mistakes ever</p>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        // --- Icons Init ---
+        lucide.createIcons();
+
+        // --- State ---
+        let currentModel = '4o'; // 4o, o1, flash
+        let isGenerating = false;
+        let attachedFile = null;
+        
+        // Session Management
+        let sessions = [];
+        let activeSessionId = null;
+        // removed global imagesSentCount
+
+        // --- Cat Images Library ---
+        const CAT_IMAGES = [
+            "https://files.catbox.moe/aw6n4w.webp",
+            "https://files.catbox.moe/9vggjk.webp",
+            "https://files.catbox.moe/2bpi9n.webp",
+            "https://files.catbox.moe/iecs8d.webp",
+            "https://files.catbox.moe/meko8t.webp",
+            "https://files.catbox.moe/u0gqjv.webp",
+            "https://files.catbox.moe/mcj3xp.webp",
+            "https://files.catbox.moe/nkb02v.webp",
+            "https://files.catbox.moe/ax4fd1.webp",
+            "https://files.catbox.moe/ap8c1s.webp",
+            "https://files.catbox.moe/0nqugb.webp",
+            "https://files.catbox.moe/baytb4.webp",
+            "https://files.catbox.moe/eno91y.webp"
+        ];
+
+        // --- Init ---
+        window.addEventListener('load', () => {
+            loadSessionsFromStorage();
+            startNewChat();
+        });
+
+        function loadSessionsFromStorage() {
+            const stored = localStorage.getItem('catgpt_sessions');
+            if (stored) {
+                try {
+                    sessions = JSON.parse(stored);
+                    renderSidebarHistory();
+                } catch (e) {
+                    console.error("Failed to load sessions", e);
+                }
+            }
+        }
+
+        function saveSessionsToStorage() {
+            try {
+                localStorage.setItem('catgpt_sessions', JSON.stringify(sessions));
+            } catch (e) {
+                if (e.name === 'QuotaExceededError' || e.code === 22 || e.code === 1014) {
+                    console.warn("LocalStorage quota exceeded. Attempting to free space...");
+                    if (sessions.length > 1) {
+                        sessions.pop();
+                        saveSessionsToStorage();
+                    } else {
+                        if (sessions.length > 0 && sessions[0].messages) {
+                            sessions[0].messages.forEach(msg => msg.image = null);
+                            try {
+                                localStorage.setItem('catgpt_sessions', JSON.stringify(sessions));
+                            } catch (finalE) {}
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- Silly Suggestions Configuration ---
+        const SILLY_SUGGESTIONS = [
+            "How to catch the red dot?",
+            "How to defeat the vacuum cleaner?",
+            "Best path for 3AM parkour?",
+            "qwer tyui op asdf ghjkl",
+            "My bowl is basically empty. Help.",
+            "Will the glass break if I push it off?",
+            "If I fit, does that legally make it mine?",
+            "How long should I expose my belly before attacking?",
+            "Who let the dogs out, WHY?",
+            "Why is the dog so stinky?",
+            "Are hoomans allowed to say M-word",
+            "Are all electrons in the universe same?",
+            "Where do the human hide the catfood?",
+            "Can we buy catnip online?",
+            "What does PsPsPsPsPsPs mean?",
+            "कराइको दुध कसरी चोर्ने?",
+            "Rastraya Meowtantra Party ko chunab chinha kun ho",
+            "सुरी भनेको के हो?",
+            "Why do closed doors exist?"
+        ];
+
+        // --- UI Elements ---
+        const userInput = document.getElementById('user-input');
+        const messagesList = document.getElementById('messages-list');
+        const welcomeScreen = document.getElementById('welcome-screen');
+        const filePreview = document.getElementById('file-preview');
+        const previewImg = document.getElementById('preview-img');
+        const sendBtn = document.getElementById('send-btn');
+        const modelLabel = document.getElementById('current-model-name');
+        const suggestionsGrid = document.getElementById('suggestions-grid');
+        const historyList = document.getElementById('history-list');
+
+        // --- Auto-resize Textarea ---
+        userInput.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = (this.scrollHeight) + 'px';
+            if (this.value.trim() === '' && !attachedFile) {
+                sendBtn.disabled = true;
+                sendBtn.classList.add('bg-[#676767]', 'text-gray-900');
+                sendBtn.classList.remove('bg-white', 'text-black');
+            } else {
+                sendBtn.disabled = false;
+                sendBtn.classList.remove('bg-[#676767]', 'text-gray-900');
+                sendBtn.classList.add('bg-white', 'text-black');
+            }
+        });
+
+        userInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+            }
+        });
+
+        // Initialize button state
+        sendBtn.disabled = true;
+        sendBtn.classList.add('bg-[#676767]');
+
+        // --- Logic ---
+
+        function toggleSidebar() {
+            const sidebar = document.getElementById('main-sidebar');
+            const overlay = document.getElementById('sidebar-overlay');
+            sidebar.classList.toggle('-translate-x-full');
+            if (overlay.classList.contains('hidden')) {
+                overlay.classList.remove('hidden');
+                setTimeout(() => overlay.classList.remove('opacity-0'), 10);
+            } else {
+                overlay.classList.add('opacity-0');
+                setTimeout(() => overlay.classList.add('hidden'), 300);
+            }
+        }
+
+        function toggleModelDropdown() {
+            const dd = document.getElementById('model-dropdown');
+            dd.classList.toggle('hidden');
+        }
+
+        function toggleUserMenu() {
+            const menu = document.getElementById('user-menu');
+            menu.classList.toggle('hidden');
+        }
+
+        document.addEventListener('click', function(event) {
+            const modelBtn = document.getElementById('model-selector-btn');
+            const modelDd = document.getElementById('model-dropdown');
+            if (!modelBtn.contains(event.target) && !modelDd.contains(event.target)) {
+                modelDd.classList.add('hidden');
+            }
+            const userBtn = document.getElementById('user-menu-btn');
+            const userMenu = document.getElementById('user-menu');
+            if (!userBtn.contains(event.target) && !userMenu.contains(event.target)) {
+                userMenu.classList.add('hidden');
+            }
+        });
+
+        async function renderSuggestions() {
+            suggestionsGrid.innerHTML = '';
+            const shuffled = SILLY_SUGGESTIONS.sort(() => 0.5 - Math.random()).slice(0, 4);
+            for (let i = 0; i < shuffled.length; i++) {
+                const prompt = shuffled[i];
+                const btn = document.createElement('button');
+                btn.onclick = () => sendPremade(prompt);
+                btn.className = "suggestion-card border border-gray-700 hover:bg-[#2f2f2f] p-4 rounded-xl text-left text-sm text-gray-300 transition-colors w-full flex items-center";
+                btn.innerHTML = `<div class="font-medium text-gray-200">${prompt}</div>`;
+                suggestionsGrid.appendChild(btn);
+                await new Promise(r => setTimeout(r, 150)); 
+            }
+        }
+
+        function selectModel(model) {
+            currentModel = model;
+            const names = { '4o': 'CatGPT', 'o1': 'CatGPT Big Brain', 'flash': 'CatGPT (fast)' };
+            modelLabel.innerText = names[model];
+            document.getElementById('model-dropdown').classList.add('hidden');
+        }
+
+        function handleFileSelect(input) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    previewImg.src = e.target.result;
+                    filePreview.classList.remove('hidden');
+                    attachedFile = e.target.result;
+                    sendBtn.disabled = false;
+                    sendBtn.classList.remove('bg-[#676767]');
+                    sendBtn.classList.add('bg-white');
+                };
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+
+        function clearFile() {
+            attachedFile = null;
+            document.getElementById('image-upload').value = '';
+            filePreview.classList.add('hidden');
+            if (userInput.value.trim() === '') {
+                sendBtn.disabled = true;
+                sendBtn.classList.add('bg-[#676767]');
+            }
+        }
+
+        function sendPremade(text) {
+            userInput.value = text;
+            handleSend();
+        }
+
+        // --- Session / History Logic ---
+
+        function startNewChat() {
+            activeSessionId = null;
+            // No need to reset imagesSentCount manually as it is now calculated dynamically
+            const sidebar = document.getElementById('main-sidebar');
+            if (!sidebar.classList.contains('-translate-x-full') && window.innerWidth < 768) {
+                toggleSidebar();
+            }
+            messagesList.innerHTML = '';
+            messagesList.classList.add('hidden');
+            welcomeScreen.classList.remove('hidden');
+            attachedFile = null;
+            clearFile();
+            renderSuggestions();
+            renderSidebarHistory();
+            if (userInput.value.trim() === '') {
+                sendBtn.disabled = true;
+                sendBtn.classList.add('bg-[#676767]');
+                sendBtn.classList.remove('bg-white');
+            }
+        }
+
+        function resetChat() {
+            if(isGenerating) return;
+            startNewChat();
+        }
+
+        function createSession(firstMessage) {
+            const id = Date.now();
+            const session = {
+                id: id,
+                title: firstMessage || "New Chat",
+                messages: [],
+                createdAt: new Date().toISOString()
+            };
+            sessions.unshift(session);
+            activeSessionId = id;
+            saveSessionsToStorage();
+            renderSidebarHistory();
+            return session;
+        }
+
+        function saveMessageToSession(role, content, image = null) {
+            if (!activeSessionId) return;
+            const session = sessions.find(s => s.id === activeSessionId);
+            if (session) {
+                session.messages.push({ role, content, image });
+                saveSessionsToStorage();
+            }
+        }
+
+        function loadSession(id) {
+            if(isGenerating) return;
+            const session = sessions.find(s => s.id === id);
+            if (!session) return;
+            activeSessionId = id;
+            const sidebar = document.getElementById('main-sidebar');
+            if (!sidebar.classList.contains('-translate-x-full') && window.innerWidth < 768) {
+                toggleSidebar();
+            }
+            welcomeScreen.classList.add('hidden');
+            messagesList.classList.remove('hidden');
+            messagesList.innerHTML = '';
+            session.messages.forEach(msg => {
+                addMessageToUI(msg.role, msg.content, msg.image);
+            });
+            renderSidebarHistory();
+        }
+
+        function deleteSession(id, event) {
+            event.stopPropagation();
+            if(confirm("Delete this chat?")) {
+                sessions = sessions.filter(s => s.id !== id);
+                saveSessionsToStorage();
+                if (activeSessionId === id) {
+                    startNewChat();
+                } else {
+                    renderSidebarHistory();
+                }
+            }
+        }
+
+        function clearAllChats() {
+            if(confirm("Are you sure you want to clear all chat history?")) {
+                sessions = [];
+                saveSessionsToStorage();
+                startNewChat();
+            }
+        }
+
+        function renderSidebarHistory() {
+            historyList.innerHTML = '';
+            sessions.forEach(session => {
+                const btn = document.createElement('button');
+                const isActive = session.id === activeSessionId;
+                let title = session.title;
+                if(title.length > 25) title = title.substring(0, 25) + '...';
+                btn.onclick = () => loadSession(session.id);
+                btn.className = `w-full text-left px-3 py-2 text-sm rounded-lg truncate group flex items-center justify-between transition-colors ${isActive ? 'bg-[#212121] text-white' : 'text-gray-300 hover:bg-[#212121]'}`;
+                btn.innerHTML = `
+                    <span class="truncate flex-1">${escapeHtml(title)}</span>
+                    <div class="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:text-red-400" onclick="deleteSession(${session.id}, event)">
+                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                    </div>
+                `;
+                historyList.appendChild(btn);
+            });
+            lucide.createIcons();
+        }
+
+        // --- Cat Image Logic ---
+        
+        function getImagesSentInCurrentSession() {
+            if (!activeSessionId) return 0;
+            const session = sessions.find(s => s.id === activeSessionId);
+            if (!session) return 0;
+            // Count messages from assistant that have an image
+            return session.messages.filter(m => m.role === 'assistant' && m.image).length;
+        }
+
+        function shouldSendImage() {
+            const count = getImagesSentInCurrentSession();
+            let chance = 0.05; // Default 1 in 20 (increased from 1 in 100)
+            
+            if (count === 0) chance = 0.40;        // 1 in 2.5 (High start)
+            else if (count === 1) chance = 0.20;   // 1 in 5
+            else if (count === 2) chance = 0.10;   // 1 in 10
+            
+            return Math.random() < chance;
+        }
+
+        // --- Send Handling ---
+
+        async function handleSend() {
+            const text = userInput.value.trim();
+            if ((!text && !attachedFile) || isGenerating) return;
+
+            if (!activeSessionId) {
+                createSession(text || "Image Sent");
+            }
+
+            userInput.value = '';
+            userInput.style.height = 'auto';
+            welcomeScreen.classList.add('hidden');
+            messagesList.classList.remove('hidden');
+            
+            addMessageToUI('user', text, attachedFile);
+            saveMessageToSession('user', text, attachedFile);
+            
+            const wasAttached = attachedFile;
+            clearFile();
+
+            isGenerating = true;
+            sendBtn.disabled = true;
+
+            const container = document.getElementById('chat-container');
+            setTimeout(() => { container.scrollTop = container.scrollHeight; }, 10);
+
+            if (currentModel !== 'o1') {
+                await new Promise(r => setTimeout(r, 300));
+            }
+            
+            createAIResponseContainer(text);
+        }
+
+        function addMessageToUI(role, text, imageSrc) {
+            const div = document.createElement('div');
+            div.className = `flex w-full ${role === 'user' ? 'justify-end' : 'justify-start'}`;
+            
+            let contentHtml = '';
+            
+            // UPDATED: Image styling for professional look (max-height constraint)
+            if (imageSrc) {
+                contentHtml += `
+                    <div class="mb-3 overflow-hidden rounded-xl border border-gray-700 shadow-md inline-block">
+                        <img src="${imageSrc}" class="w-auto h-auto max-h-[300px] object-contain block" onload="this.parentElement.scrollIntoView({behavior:'smooth', block:'end'})">
+                    </div>
+                `;
+            }
+            
+            if (text) {
+                contentHtml += `<div class="whitespace-pre-wrap">${escapeHtml(text)}</div>`;
+            }
+
+            if (role === 'user') {
+                div.innerHTML = `
+                    <div class="max-w-[80%] bg-[#2f2f2f] text-white px-5 py-3 rounded-3xl rounded-tr-sm">
+                        ${contentHtml}
+                    </div>
+                `;
+            } else {
+                div.innerHTML = `
+                    <div class="flex gap-4 max-w-[90%] md:max-w-[85%]">
+                        <div class="flex-shrink-0 w-8 h-8 rounded-full bg-white border border-gray-200 flex items-center justify-center">
+                            <i data-lucide="cat" class="w-5 h-5 text-black"></i>
+                        </div>
+                        <div class="flex flex-col w-full">
+                            <div class="font-medium text-sm text-gray-200 mb-1">CatGPT</div>
+                            <div class="text-gray-100 prose prose-invert leading-7 ai-content-area">
+                                ${contentHtml}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            messagesList.appendChild(div);
+            lucide.createIcons();
+        }
+
+        async function createAIResponseContainer(userText) {
+            const div = document.createElement('div');
+            div.className = `flex w-full justify-start`;
+            
+            // Determine if we are sending an image upfront
+            let sentImageUrl = null;
+            if (shouldSendImage()) {
+                imagesSentCount = (typeof imagesSentCount !== 'undefined' ? imagesSentCount : 0) + 1; // Fallback
+                sentImageUrl = CAT_IMAGES[Math.floor(Math.random() * CAT_IMAGES.length)];
+            }
+
+            let innerHTML = `
+                <div class="flex gap-4 max-w-[90%] md:max-w-[85%] w-full">
+                    <div class="flex-shrink-0 w-8 h-8 rounded-full bg-white border border-gray-200 flex items-center justify-center mt-1">
+                        <i data-lucide="cat" class="w-5 h-5 text-black"></i>
+                    </div>
+                    <div class="flex flex-col w-full">
+                        <div class="font-medium text-sm text-gray-200 mb-1">CatGPT</div>
+            `;
+
+            if (currentModel === 'o1') {
+                innerHTML += `
+                    <div id="o1-thinking-placeholder" class="mb-2">
+                        <div class="flex items-center gap-2 text-sm text-gray-400 animate-pulse-slow">
+                            <i data-lucide="brain-circuit" class="w-4 h-4"></i>
+                            <span id="o1-timer">Thinking...</span>
+                        </div>
+                    </div>
+                    <div id="o1-accordion-container" class="hidden mb-2"></div>
+                `;
+            }
+
+            // Image Container (Before Text)
+            if (sentImageUrl) {
+                innerHTML += `
+                    <div id="ai-image-container" class="mb-3">
+                        <!-- Loading State -->
+                        <div id="ai-image-loader" class="w-48 h-32 bg-[#2f2f2f] rounded-xl flex items-center justify-center border border-gray-700 animate-pulse">
+                            <i data-lucide="image" class="w-6 h-6 text-gray-500"></i>
+                        </div>
+                    </div>
+                `;
+            }
+
+            innerHTML += `
+                        <div class="text-gray-100 prose prose-invert leading-7 ai-response-text typing-cursor"></div>
+                    </div>
+                </div>
+            `;
+
+            div.innerHTML = innerHTML;
+            messagesList.appendChild(div);
+            lucide.createIcons();
+
+            const textElement = div.querySelector('.ai-response-text');
+            const chatContainer = document.getElementById('chat-container');
+
+            // --- O1 SIMULATION LOGIC ---
+            if (currentModel === 'o1') {
+                const placeholder = div.querySelector('#o1-thinking-placeholder');
+                const timerSpan = div.querySelector('#o1-timer');
+                const accordionContainer = div.querySelector('#o1-accordion-container');
+                const thinkTimeSeconds = Math.floor(Math.random() * 4) + 2; 
+                let elapsed = 0;
+                const interval = setInterval(() => { elapsed++; timerSpan.innerText = `Thinking (${elapsed}s)...`; }, 1000);
+                await new Promise(r => setTimeout(r, thinkTimeSeconds * 1000));
+                clearInterval(interval);
+                const thoughtMeows = generateRandomMeowString(Math.floor(Math.random() * 30) + 20);
+                placeholder.classList.add('hidden');
+                accordionContainer.classList.remove('hidden');
+                accordionContainer.innerHTML = `
+                    <button onclick="toggleThinking(this)" class="flex items-center gap-2 text-xs text-gray-400 hover:text-gray-200 transition-colors cursor-pointer select-none">
+                        <i data-lucide="sparkles" class="w-3 h-3"></i>
+                        <span>Thought for ${thinkTimeSeconds} seconds</span>
+                        <i data-lucide="chevron-down" class="w-3 h-3 transform transition-transform"></i>
+                    </button>
+                    <div class="thinking-content border-l-2 border-gray-700 pl-3 mt-2 ml-1 text-gray-500 text-sm italic">
+                        <div class="py-1 whitespace-pre-wrap">${thoughtMeows}</div>
+                    </div>
+                `;
+                lucide.createIcons();
+            }
+
+            // --- Handle Image Loading (Blocking with Animation) ---
+            if (sentImageUrl) {
+                // Scroll down immediately so user sees the "Loading image" box
+                requestAnimationFrame(() => {
+                    chatContainer.scrollTop = chatContainer.scrollHeight;
+                });
+
+                const imgContainer = div.querySelector('#ai-image-container');
+                const img = new Image();
+                // Start blurred and invisible for the reveal effect
+                img.className = "w-auto h-auto max-h-[300px] max-w-full rounded-xl border border-gray-700 shadow-md cursor-pointer block transition-all duration-1000 blur-lg opacity-0";
+                
+                // Show loading indicator in text area
+                const loader = document.createElement('span');
+                loader.className = "loading-dots text-gray-400 text-sm";
+                loader.textContent = "Loading image";
+                textElement.appendChild(loader);
+
+                // Enforce minimum 1 second load time
+                const minLoadTimePromise = new Promise(r => setTimeout(r, 1000));
+                
+                // Image loading promise
+                const imgLoadPromise = new Promise(resolve => {
+                    let isResolved = false;
+                    const finish = () => {
+                        if (!isResolved) { isResolved = true; resolve(true); }
+                    };
+                    img.onload = finish;
+                    img.onerror = () => { isResolved = true; resolve(false); };
+                    img.src = sentImageUrl;
+                    // Max timeout 2s
+                    setTimeout(() => { if(!isResolved) resolve(false); }, 2000);
+                });
+
+                // Wait for both minimum time AND image load
+                const [_, success] = await Promise.all([minLoadTimePromise, imgLoadPromise]);
+
+                if (success && img.naturalWidth !== 0) {
+                    imgContainer.innerHTML = ''; // Clear pulse loader
+                    imgContainer.appendChild(img);
+                    
+                    // Force a scroll to bottom to ensure image area is visible before revealing
+                    chatContainer.scrollTop = chatContainer.scrollHeight;
+
+                    // Trigger Reflow to ensure CSS transition works
+                    void img.offsetWidth; 
+
+                    // Reveal Animation: Remove blur and opacity
+                    img.classList.remove('blur-lg');
+                    img.classList.remove('opacity-0');
+                    
+                    // Wait for the unblur animation (1 second) before starting text
+                    await new Promise(r => setTimeout(r, 1000));
+                } else {
+                    imgContainer.remove(); // Remove container if load failed
+                }
+
+                // Clear loading indicator text
+                textElement.innerHTML = '';
+            }
+
+            // Stream Text
+            const fullResponse = await streamMeows(textElement, userText);
+            
+            // Save to History (Text + Optional Image)
+            saveMessageToSession('assistant', fullResponse, sentImageUrl);
+            
+            // Render Follow-up Suggestions
+            renderFollowUps(textElement.parentElement);
+        }
+
+        function toggleThinking(btn) {
+            const content = btn.nextElementSibling;
+            const arrow = btn.querySelector('.lucide-chevron-down');
+            if (content.classList.contains('open')) {
+                content.classList.remove('open');
+                arrow.style.transform = 'rotate(0deg)';
+            } else {
+                content.classList.add('open');
+                arrow.style.transform = 'rotate(180deg)';
+            }
+        }
+        
+        // --- Follow-Up Suggestion Logic ---
+        
+        function generateMeowSuggestion() {
+            const length = Math.floor(Math.random() * 10) + 1;
+            const getWord = () => {
+                if (Math.random() < 0.90) return 'meow';
+                const others = ['mrrp', 'purr', 'nyan', 'hiss', 'mrrow', 'mewl', 'mew'];
+                return others[Math.floor(Math.random() * others.length)];
+            };
+            let sentence = "";
+            for(let i=0; i<length; i++) {
+                let word = getWord();
+                const isAllCaps = Math.random() < 0.01;
+                if(isAllCaps) {
+                    word = word.toUpperCase();
+                } else {
+                    if (i === 0) word = word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+                    else word = word.toLowerCase();
+                }
+                sentence += word + " ";
+            }
+            const r = Math.random();
+            let punc = ".";
+            if (r < 0.8) punc = ".";
+            else if (r < 0.9) punc = "?";
+            else punc = "!";
+            return (sentence.trim() + punc).trim();
+        }
+
+        function renderFollowUps(container) {
+            const suggestionsDiv = document.createElement('div');
+            suggestionsDiv.className = "flex flex-wrap gap-2 mt-3";
+            for(let i=0; i<3; i++) {
+                const text = generateMeowSuggestion();
+                const btn = document.createElement('button');
+                btn.className = "border border-gray-600 rounded-xl px-3 py-1.5 text-sm text-gray-300 hover:bg-[#2f2f2f] hover:text-white transition-colors text-left";
+                btn.innerText = text;
+                btn.onclick = () => { 
+                    sendPremade(text); 
+                    suggestionsDiv.remove();
+                };
+                suggestionsDiv.appendChild(btn);
+            }
+            container.appendChild(suggestionsDiv);
+            const chatContainer = document.getElementById('chat-container');
+            setTimeout(() => { chatContainer.scrollTop = chatContainer.scrollHeight; }, 10);
+        }
+
+        // --- THE MEOW ENGINE ---
+        
+        function generateRandomMeowString(forcedCount = null) {
+            const getWord = () => {
+                if (Math.random() < 0.90) return 'meow';
+                const others = ['mrrp', 'purr', 'nyan', 'hiss', 'mrrow', 'mewl', 'mew'];
+                return others[Math.floor(Math.random() * others.length)];
+            };
+            const generateSentenceWords = (length, allowEmDash) => {
+                let sentenceWords = [];
+                let activePair = null; 
+                let usedEmDash = false;
+                for (let j = 0; j < length; j++) {
+                    let word = getWord();
+                    let prefix = "";
+                    let suffix = "";
+                    const isAllCaps = Math.random() < 0.01; 
+                    if (isAllCaps) { word = word.toUpperCase(); } 
+                    else { if (j === 0) word = word.charAt(0).toUpperCase() + word.slice(1).toLowerCase(); else word = word.toLowerCase(); }
+                    if (activePair) {
+                        if (j === length - 1 || Math.random() < 0.3) { if (activePair === '"') suffix += '"'; activePair = null; }
+                    } else if (j < length - 2 && Math.random() < 0.02) { 
+                        const type = '"'; prefix += type; activePair = type;
+                        if (!isAllCaps) word = word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+                    }
+                    if (!suffix && j < length - 1) {
+                        const r = Math.random();
+                        if (!prefix) {
+                            if (r < 0.12) suffix += ",";
+                            else if (r > 0.97 && allowEmDash && !usedEmDash) { suffix += "—"; usedEmDash = true; }
+                        }
+                    }
+                    sentenceWords.push(prefix + word + suffix);
+                }
+                if (activePair) { let last = sentenceWords[length - 1]; if (activePair === '"') last += '"'; sentenceWords[length - 1] = last; }
+                return { words: sentenceWords, hasEmDash: usedEmDash };
+            };
+
+            let fullResponse = "";
+            let paraSentenceCount = 0;
+            let paraWordCount = 0;
+            let paraHasEmDash = false;
+            let totalWordsGenerated = 0;
+            let totalSentencesGenerated = 0;
+            const targetSentences = forcedCount ? null : Math.floor(Math.random() * 8) + 5; 
+            let keepGoing = true;
+
+            while (keepGoing) {
+                let remaining = forcedCount ? (forcedCount - totalWordsGenerated) : 1000;
+                let targetLen = Math.floor(Math.random() * 16) + 5; 
+                if (targetLen > remaining && forcedCount) targetLen = remaining;
+                if (targetLen <= 0) break;
+
+                const result = generateSentenceWords(targetLen, !paraHasEmDash);
+                const words = result.words;
+                if (result.hasEmDash) paraHasEmDash = true;
+
+                let punc = ".";
+                let cleanLast = words[words.length-1].replace(/[^\w\s]/g, '');
+                if (cleanLast === cleanLast.toUpperCase() && cleanLast.length > 1) {
+                    const r = Math.random();
+                    if (r < 0.6) punc = "!"; else if (r < 0.8) punc = "?";
+                } else {
+                    const r = Math.random();
+                    if (r < 0.8) punc = "."; else if (r < 0.9) punc = "?"; else punc = "!";
+                }
+                fullResponse += words.join(" ") + punc + " ";
+                totalWordsGenerated += targetLen;
+                totalSentencesGenerated++;
+                paraSentenceCount++;
+                paraWordCount += targetLen;
+
+                if (forcedCount) { if (totalWordsGenerated >= forcedCount) keepGoing = false; } 
+                else { if (totalSentencesGenerated >= targetSentences) keepGoing = false; }
+
+                if (keepGoing) {
+                    let shouldBreak = false;
+                    if (paraSentenceCount === 1) { if (Math.random() < 0.05) shouldBreak = true; } 
+                    else if (paraSentenceCount === 2) { if (Math.random() < 0.10) shouldBreak = true; } 
+                    else if (paraSentenceCount === 3) { if (Math.random() < 0.30) shouldBreak = true; }
+                    if (!shouldBreak) {
+                        if (paraWordCount >= 45 && paraWordCount <= 55) { if (Math.random() < 0.50) shouldBreak = true; } 
+                        else if (paraWordCount > 55) { if (Math.random() < 0.25) shouldBreak = true; }
+                    }
+                    if (shouldBreak) { fullResponse += "\n\n"; paraSentenceCount = 0; paraWordCount = 0; paraHasEmDash = false; }
+                }
+            }
+            return fullResponse.trim();
+        }
+
+        async function streamMeows(element, userText) {
+            let forcedCount = null;
+            if (userText && /^\d+$/.test(userText.trim())) {
+                const num = parseInt(userText.trim(), 10);
+                forcedCount = Math.min(Math.max(1, num), 1000); 
+            }
+            const fullText = generateRandomMeowString(forcedCount);
+            const tokens = fullText.split(/(\s+)/);
+            const isGolden = Math.random() < 0.1;
+            if (isGolden) { element.classList.add('golden-text'); console.log("Legendary Golden Meow Triggered!"); } 
+            else { element.classList.remove('golden-text'); }
+
+            let baseDelay = 15; 
+            if (currentModel === 'flash') baseDelay = 2; 
+            if (currentModel === 'o1') baseDelay = 10; 
+
+            const container = document.getElementById('chat-container');
+            for (let i = 0; i < tokens.length; i++) {
+                const token = tokens[i];
+                if (token.length === 0) continue;
+                const threshold = 100; 
+                const wasAtBottom = (container.scrollHeight - container.scrollTop - container.clientHeight) <= threshold;
+                element.innerText += token;
+                if (wasAtBottom) { container.scrollTop = container.scrollHeight; }
+                if (token.trim().length > 0) { await new Promise(r => setTimeout(r, baseDelay + Math.random() * 10)); }
+            }
+            element.classList.remove('typing-cursor');
+            isGenerating = false;
+            sendBtn.disabled = false;
+            return fullText; 
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+            return text.replace(/[&<>"']/g, function(m) { return map[m]; });
+        }
+    </script>
+</body>
+</html>
